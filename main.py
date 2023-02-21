@@ -1,11 +1,11 @@
-"""
-TwitterAnalytics, for automatic analysis on custom twitter's hashtags
-"""
+"""TwitterAnalytics, for automatic analysis on custom twitter's hashtags"""
 
 from datetime import datetime, timedelta
 import yaml
 import pandas as pd
 import tweepy as ty
+from unidecode import unidecode
+
 
 class TwitterAnalytics:
     """
@@ -18,8 +18,7 @@ class TwitterAnalytics:
 
         # Token
         # Add your API token in the token variable
-        config = yaml.safe_load(open(r'config/config.yml'))
-        token = config['user']['token']
+        token = yaml.safe_load(open(r'config/config.yml'))['user']['token']
         self.client = ty.Client(bearer_token=token)
 
         # Time parameters
@@ -27,6 +26,12 @@ class TwitterAnalytics:
 
         # Possible languages
         self.all_langs = ['pt', 'en']
+
+        # Stopwords to be removed
+        self.stopwords_en = pd.read_csv(r'stopwords_en.csv')
+        self.stopwords_pt = pd.read_csv(r'stopwords_pt.csv')
+
+        self.tweet_df = pd.DataFrame()
 
     def search(self, hashtag, n_tweets = 10, n_days = 1, lang = None):
         """Function that uses Twitter API to searching the desired hashtag
@@ -47,17 +52,16 @@ class TwitterAnalytics:
             if it's from a verified user, date, name of the user.
         """
 
-        if not lang is None:
+        if lang is None:
+            search = f"#{hashtag}"
 
+        else:
             # Input languages
             if lang not in self.all_langs:
                 raise KeyError(f'Language not avaible. Choose between: {self.all_langs}')
 
             # Defining search
             search = f"#{hashtag} lang:{lang}"
-
-        else:
-            search = f"#{hashtag}" #-is:retweet"
 
         # Time period
         start_period = self.today - timedelta(days = n_days)
@@ -99,4 +103,49 @@ class TwitterAnalytics:
         tweets_df = pd.DataFrame(tweet_info_ls)
         tweets_df['created_at'] = tweets_df['created_at'].dt.date
 
+        self.tweet_df = tweets_df
+
         return tweets_df
+
+    def analyze(self, df=None):
+
+        if df is None:
+            df = self.tweet_df
+
+        all_text = df['text'].str.split(' ').explode()
+        all_text = pd.DataFrame({'words':all_text})
+
+        # Normalising text
+        all_text['words'] = all_text['words'].apply(unidecode)
+        all_text['words'] = all_text['words'].str.replace('\W', '', regex=True)
+        all_text['words'] = all_text['words'].str.upper()
+
+        # TODO conditional for language selected
+        all_text_filtered = all_text[~all_text['words'].isin(self.stopwords_en['stopwords'])]
+        all_text_filtered = all_text_filtered[~all_text_filtered['words'].isin(self.stopwords_pt['stopwords'])]
+
+        all_text_filtered['words'] = all_text_filtered['words'].str.strip()
+        all_text_filtered = all_text_filtered[all_text_filtered['words']!='']
+
+        all_text_filtered.reset_index(inplace=True, drop=True)
+
+        # TODO show tables as plotly
+        # Couting and ordering
+        qtd = all_text_filtered.groupby('words')['words'].count()
+        qtd = qtd.reset_index(name='Qtd.').sort_values('Qtd.', ascending=False)
+
+        # Top 10 words
+        top_10 = qtd.iloc[0:10]
+
+        # Verified comments
+        certified = df[df['verified']==True]
+
+        # Tweets by location
+        location = df.groupby('location')['location'].count()
+        location = location.reset_index(name='Qtd.').sort_values('Qtd.', ascending = False)
+
+        # Tweets by username
+        by_user = df.groupby('username')['username'].count()
+        by_user = by_user.reset_index(name='Qtd.').sort_values('Qtd.', ascending = False)
+
+        return top_10, certified, location, by_user
