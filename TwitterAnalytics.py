@@ -1,7 +1,6 @@
 """TwitterAnalytics, for automatic analysis on custom twitter's hashtags"""
 
 from datetime import datetime, timedelta
-import yaml
 import pandas as pd
 import tweepy as ty
 import plotly.express as px
@@ -65,7 +64,7 @@ class TwitterAnalytics:
             end_time = end_period,
             tweet_fields = [
                 "created_at", "text", "lang",
-                "possibly_sensitive", "source"
+                "possibly_sensitive", "source", "public_metrics"
             ],
             user_fields = [
                 "username", "location", "verified",  "description"
@@ -74,24 +73,29 @@ class TwitterAnalytics:
             expansions = 'author_id'
             )
 
-        # Generating dataframe
-        tweet_info_ls = []
+        # Generating dataframe for tweet info
+        tweet_info_twt = []
 
         for tweet, user in zip(tweets.data, tweets.includes['users']):
             tweet_info = {
+                
+                # Tweets info
                 'created_at':tweet.created_at,
                 'text':tweet.text,
                 'lang':tweet.lang,
                 'possibly_sensitive':tweet.possibly_sensitive,
                 'source':tweet.source,
+                'likes':tweet.public_metrics['like_count'],
+                'retweets':tweet.public_metrics['retweet_count'],
+
+                # User info
                 'username':user.username,
                 'location':user.location,
                 'verified':user.verified,
-                'description':user.description
+                'description':user.description              
             }
-            tweet_info_ls.append(tweet_info)
-
-        tweets_df = pd.DataFrame(tweet_info_ls)
+            tweet_info_twt.append(tweet_info)
+        tweets_df = pd.DataFrame(tweet_info_twt)
         tweets_df['created_at'] = tweets_df['created_at'].dt.date
 
         self.tweets_df = tweets_df
@@ -145,23 +149,40 @@ class TwitterAnalytics:
         top_10 = qtd.iloc[0:10]
 
         top_10_fig = px.bar(top_10, x='words', y='Qtd.')
+        print('Top 10 words used:')
         top_10_fig.show()
-
-        # Verified comments
-        verified = tweets_analyze[tweets_analyze['verified'] == True]
-        verified = verified[['username', 'text']]
-        display(verified)
 
         # Tweets by location
         location = tweets_analyze.groupby('location')['location'].count()
         location = location.reset_index(name='Qtd.').sort_values('Qtd.', ascending = False)
 
         location_fig = px.bar(location, x='location', y='Qtd.')
+        print('\nTweets by location:')
         location_fig.show()
+
+        # Verified comments
+        verified = tweets_analyze[tweets_analyze['verified'] == True]
+        verified = verified[['username', 'text']]
+        print('\nVerified comments:')
+        display(verified)
 
         # Tweets by username
         by_user = tweets_analyze.groupby('username')['username'].count()
         by_user = by_user.reset_index(name='Qtd.').sort_values('Qtd.', ascending = False)
+        print('\nTweets by username:')
         display(by_user)
 
-        return top_10, verified, location, by_user
+        # Most liked tweet
+        most_liked = tweets_analyze.copy()[tweets_analyze['likes']==tweets_analyze['likes'].max()]
+        most_liked = most_liked[['text', 'username', 'likes', 'retweets']]
+        print('\nMost liked:')
+        display(most_liked)
+
+        # Most retweets
+        most_retweets = tweets_analyze.copy()[tweets_analyze['retweets']==tweets_analyze['retweets'].max()]
+        most_retweets = most_retweets[['text', 'username', 'likes', 'retweets']]
+        print('\nMost retweeted:')
+        display(most_liked)
+
+        return top_10, verified, location, by_user, most_liked
+
