@@ -1,13 +1,78 @@
 """TwitterAnalytics, for automatic analysis on custom twitter's hashtags"""
 
+from googletrans import Translator
+from textblob import TextBlob
+import re
 from datetime import datetime, timedelta
+from unidecode import unidecode
 import pandas as pd
 import tweepy as ty
 import plotly.express as px
-from unidecode import unidecode
 import warnings
 warnings.filterwarnings('ignore')
 
+
+def sentiment_polarity(txt):
+    """Function that takes text and applies textblob's sentiment analysis
+
+    Args:
+        txt (string): text to by analysed
+
+    Returns:
+        float: range [-1.0, 1.0] representing the sentiment analysis
+    """
+
+    blob = TextBlob(txt) 
+    sentiment = blob.sentiment.polarity
+
+    return sentiment
+
+def translate(txt, lang):
+    """Function to translate text to english
+
+    Args:
+        txt (string): text to be translated
+        lang (_type_): language from the text to be translated
+
+    Returns:
+        string: text translated to english
+    """
+
+    translator = Translator()
+    translated_text = translator.translate(text=txt, src=lang, dest='en')
+
+    return translated_text.text
+
+def cleaning_txt(txt):
+    """Function to normalize text for further analysis. It removes accentuation,
+    special characters, links, retweets info generated automatically
+    by Twitter, and converts text to upper case.
+
+    Args:
+        txt (string): text to be normalized
+
+    Returns:
+        string: normalized text
+    """
+
+    txt = txt.upper()
+
+    # Removing retweet info
+    if all(ext in txt for ext in ['RT', ':']):
+        pos1 = re.search('RT', txt).span()[0]
+        pos2 = re.search(':', txt).span()[0]
+
+        txt = txt.replace(txt[pos1:(pos2+1)], '')
+
+    # Removing links
+    txt = re.sub('HTTP://\S+|HTTPS://\S+', '', txt)
+
+    txt = unidecode(txt)
+    txt = txt.replace('\W', '')
+    txt = txt.replace('#', '')
+    txt = txt.replace('\n', '')
+
+    return txt
 
 class TwitterAnalytics:
     """
@@ -78,7 +143,7 @@ class TwitterAnalytics:
 
         for tweet, user in zip(tweets.data, tweets.includes['users']):
             tweet_info = {
-                
+
                 # Tweets info
                 'created_at':tweet.created_at,
                 'text':tweet.text,
@@ -95,12 +160,12 @@ class TwitterAnalytics:
                 'description':user.description              
             }
             tweet_info_twt.append(tweet_info)
+
         tweets_df = pd.DataFrame(tweet_info_twt)
         tweets_df['created_at'] = tweets_df['created_at'].dt.date
-
         self.tweets_df = tweets_df
 
-        return tweets_df
+        return self.tweets_df
 
     def analyze(self):
 
@@ -112,35 +177,33 @@ class TwitterAnalytics:
             quantity of tweets by location, quantity of tweets by user.
         """
 
-        tweets_analyze = self.tweets_df
+        tweets_analyze = self.tweets_df[['text', 'username', 'location', 'likes', 'retweets', 'verified']]
 
         # Splitting all the words from the gathered tweets
         all_text = tweets_analyze['text'].str.split(' ').explode()
         all_text = pd.DataFrame({'words':all_text})
 
         # Normalising text
-        all_text['words'] = all_text['words'].apply(unidecode)
-        all_text['words'] = all_text['words'].str.replace('\W', '', regex=True)
-        all_text['words'] = all_text['words'].str.upper()
+        all_text['words_cleaned'] = all_text['words'].apply(cleaning_txt)
 
         # Removing stopwords based on the language selected
         if self.lang == 'pt':
             stopwords_pt = pd.read_csv(r'stopwords_pt.csv')
-            all_text_filtered = all_text[~all_text['words'].isin(stopwords_pt['stopwords'])]
+            all_text_filtered = all_text[~all_text['words_cleaned'].isin(stopwords_pt['stopwords'])]
 
         else:
             stopwords_en = pd.read_csv(r'stopwords_en.csv')
-            all_text_filtered = all_text[~all_text['words'].isin(stopwords_en['stopwords'])]
+            all_text_filtered = all_text[~all_text['words_cleaned'].isin(stopwords_en['stopwords'])]
 
         # Removing leading and trailling spaces
-        all_text_filtered['words'] = all_text_filtered['words'].str.strip()
+        all_text_filtered['words_cleaned'] = all_text_filtered['words_cleaned'].str.strip()
 
         # Filtering blank a "RT" words
-        all_text_filtered = all_text_filtered[~all_text_filtered['words'].isin(['', 'RT'])]
+        all_text_filtered = all_text_filtered[~all_text_filtered['words_cleaned'].isin(['', 'RT'])]
         all_text_filtered.reset_index(inplace=True, drop=True)
 
         # Counting and ordering by number of repetitions
-        qtd = all_text_filtered.groupby('words')['words'].count()
+        qtd = all_text_filtered.groupby('words_cleaned')['words_cleaned'].count()
         qtd = qtd.reset_index(name='Qtd.').sort_values('Qtd.', ascending=False)
 
         pd.set_option('display.colheader_justify','center')
@@ -148,12 +211,14 @@ class TwitterAnalytics:
         # Top 10 words used
         top_10 = qtd.iloc[0:10]
 
-        top_10_fig = px.bar(top_10, x='words', y='Qtd.')
+        top_10_fig = px.bar(top_10, x='words_cleaned', y='Qtd.')
         print('Top 10 words used:')
         top_10_fig.show()
 
         # Tweets by location
-        location = tweets_analyze.groupby('location')['location'].count()
+        location = tweets_analyze[tweets_analyze['location'].notnull()]
+        location['location'] = location['location'].apply(cleaning_txt)
+        location = location.groupby('location')['location'].count()
         location = location.reset_index(name='Qtd.').sort_values('Qtd.', ascending = False)
 
         location_fig = px.bar(location, x='location', y='Qtd.')
@@ -162,7 +227,6 @@ class TwitterAnalytics:
 
         # Verified comments
         verified = tweets_analyze[tweets_analyze['verified'] == True]
-        verified = verified[['username', 'text']]
         print('\nVerified comments:')
         display(verified)
 
@@ -173,16 +237,48 @@ class TwitterAnalytics:
         display(by_user)
 
         # Most liked tweet
-        most_liked = tweets_analyze.copy()[tweets_analyze['likes']==tweets_analyze['likes'].max()]
-        most_liked = most_liked[['text', 'username', 'likes', 'retweets']]
+        most_liked = tweets_analyze[tweets_analyze['likes']==tweets_analyze['likes'].max()]
+        most_liked = most_liked.iloc[0:1]
         print('\nMost liked:')
         display(most_liked)
 
         # Most retweets
-        most_retweets = tweets_analyze.copy()[tweets_analyze['retweets']==tweets_analyze['retweets'].max()]
-        most_retweets = most_retweets[['text', 'username', 'likes', 'retweets']]
+        most_retweets = tweets_analyze[tweets_analyze['retweets']==tweets_analyze['retweets'].max()]
+        most_retweets = most_retweets.iloc[0:1]
         print('\nMost retweeted:')
-        display(most_liked)
+        display(most_retweets)
 
-        return top_10, verified, location, by_user, most_liked
+        return top_10, location, verified, by_user, most_liked, most_retweets
 
+    def sentiment_analysis(self):
+
+        # Normalising Text
+        sentiment_df = self.tweets_df[['text', 'username']]
+        sentiment_df['text_sentiment'] = sentiment_df['text'].apply(cleaning_txt)
+
+        # Translating to english
+        if self.lang != 'en':
+            sentiment_df['text_sentiment'] = sentiment_df['text_sentiment'].apply(
+                lambda x: translate(txt=x, lang=self.lang))
+        else:
+            sentiment_df['text_sentiment'] = sentiment_df['text_sentiment']
+
+        # Creating columns with sentiment analysis
+        sentiment = []
+        for i, row in sentiment_df.iterrows():
+            polarity = sentiment_polarity(row.text_sentiment)
+            sentiment.append(polarity)
+        sentiment_df['SENTIMENT'] = sentiment
+
+        # Displaying results
+        most_positive = sentiment_df.loc[sentiment_df['SENTIMENT']==sentiment_df['SENTIMENT'].max()]
+        most_positive = most_positive.iloc[0:1]
+        print("\nMost positive tweet:")
+        display(most_positive)
+
+        most_negative = sentiment_df.loc[sentiment_df['SENTIMENT']==sentiment_df['SENTIMENT'].min()]
+        most_negative = most_negative.iloc[0:1]
+        print("\nMost negative tweet:")
+        display(most_negative)
+
+        return sentiment_df
