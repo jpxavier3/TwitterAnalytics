@@ -1,14 +1,16 @@
 """TwitterAnalytics, for automatic analysis on custom twitter's hashtags"""
 
+import warnings
+import re
 from googletrans import Translator
 from textblob import TextBlob
-import re
 from datetime import datetime, timedelta
 from unidecode import unidecode
 import pandas as pd
 import tweepy as ty
 import plotly.express as px
-import warnings
+from IPython.display import display
+
 warnings.filterwarnings('ignore')
 
 
@@ -22,7 +24,7 @@ def sentiment_polarity(txt):
         float: range [-1.0, 1.0] representing the sentiment analysis
     """
 
-    blob = TextBlob(txt) 
+    blob = TextBlob(txt)
     sentiment = blob.sentiment.polarity
 
     return sentiment
@@ -230,12 +232,6 @@ class TwitterAnalytics:
         print('\nVerified comments:')
         display(verified)
 
-        # Tweets by username
-        by_user = tweets_analyze.groupby('username')['username'].count()
-        by_user = by_user.reset_index(name='Qtd.').sort_values('Qtd.', ascending = False)
-        print('\nTweets by username:')
-        display(by_user)
-
         # Most liked tweet
         most_liked = tweets_analyze[tweets_analyze['likes']==tweets_analyze['likes'].max()]
         most_liked = most_liked.iloc[0:1]
@@ -248,9 +244,15 @@ class TwitterAnalytics:
         print('\nMost retweeted:')
         display(most_retweets)
 
-        return top_10, location, verified, by_user, most_liked, most_retweets
+        return top_10, location, verified, most_liked, most_retweets
 
     def sentiment_analysis(self):
+        """Function for returning sentiment analysis on the searched tweets
+
+        Returns:
+            DataFrame: adds a column with the sentiment analysis by tweet
+            with the range [-1.0, 1.0]
+        """
 
         # Normalising Text
         sentiment_df = self.tweets_df[['text', 'username']]
