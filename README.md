@@ -1,6 +1,7 @@
-# TwitterAnalytics
-Find out what's been talked about anything you want!\
-Python code for tweet analysis Tweeter hashtags.
+# TwitterAnalytics <img src="./Docs/Python.png" width="30"> <img src="./Docs/Twitter.png" width="30"> <br/>
+Find out what is being said about anything you want!<br/>
+This Python code is made for analyze Twitter hashtags, returning not only the tweets
+but also generating automatic analysis on the topic you requested.
 
 # Searching the tweets
 Get a dataframe with all the tweets returned from your query, along with additional
