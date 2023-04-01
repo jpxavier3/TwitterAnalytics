@@ -190,12 +190,10 @@ class TwitterAnalytics:
 
         # Removing stopwords based on the language selected
         if self.lang == 'pt':
-            stopwords_pt = pd.read_csv(r'Stopwords/stopwords_pt.csv')
-            all_text_filtered = all_text[~all_text['words_cleaned'].isin(stopwords_pt['stopwords'])]
-
+            stopwords = pd.read_csv(r'Stopwords/stopwords_pt.csv')
         else:
-            stopwords_en = pd.read_csv(r'Stopwords/stopwords_en.csv')
-            all_text_filtered = all_text[~all_text['words_cleaned'].isin(stopwords_en['stopwords'])]
+            stopwords = pd.read_csv(r'Stopwords/stopwords_en.csv')
+        all_text_filtered = all_text[~all_text['words_cleaned'].isin(stopwords['stopwords'])]
 
         # Removing leading and trailling spaces
         all_text_filtered['words_cleaned'] = all_text_filtered['words_cleaned'].str.strip()
